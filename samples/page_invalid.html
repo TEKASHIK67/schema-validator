@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Отель Delphin Imperial Lara</title>
+  <!-- ОШИБКА 1: невалидный JSON — висячая запятая после starRating -->
+  <!-- ОШИБКА 2: отсутствует обязательное поле address -->
+  <!-- ОШИБКА 3: aggregateRating.ratingValue не число ("отлично") -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Hotel",
+    "name": "Delphin Imperial Lara Hotel",
+    "starRating": { "@type": "Rating", "ratingValue": "5" },
+    "aggregateRating": { "@type": "AggregateRating", "ratingValue": "отлично", "reviewCount": "640" },
+  }
+  </script>
+  <!-- ОШИБКА 4: BreadcrumbList с нарушенной нумерацией position (1,3 — пропуск 2) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Турция", "item": "https://travelata.ru/turkey" },
+      { "@type": "ListItem", "position": 3, "name": "Delphin Imperial Lara" }
+    ]
+  }
+  </script>
+</head>
+<body><h1>Delphin Imperial Lara</h1></body>
+</html>
