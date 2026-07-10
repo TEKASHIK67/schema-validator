@@ -2,21 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 cli.py — CLI-утилита валидации структурированной разметки schema.org.
-
-Использование:
-
-  # Обход списка URL из файла (по одному URL в строке, строки с # игнорируются)
-  python3 cli.py --input urls.txt --output-dir ./report --workers 10
-
-  # Проверка локальных HTML-файлов (для теста / отладки без сети)
-  python3 cli.py --input page1.html page2.html --local --output-dir ./report
-
-  # Проверка одной страницы с выводом только в JSON в stdout (для REST-обвязки)
-  python3 cli.py --input page.html --local --json-stdout
-
-Результат:
-  report.csv  — построчный список нарушений
-  report.html — наглядный HTML-отчёт со сводкой
 """
 
 import argparse
@@ -28,14 +13,14 @@ import concurrent.futures as cf
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from extractor import extract_jsonld_blocks
+from extractor import extract_structured_data
 from validator import validate_block
 from report import write_csv_report, write_html_report
 
-DEFAULT_TIMEOUT = 10
-DEFAULT_RETRIES = 2
-DEFAULT_WORKERS = 8
-USER_AGENT = "SchemaValidatorBot/1.0 (+SEO structured data audit)"
+DEFAULT_TIMEOUT = 15
+DEFAULT_RETRIES = 1
+DEFAULT_WORKERS = 4  # Оптимально для стабильной параллельной работы в Docker
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 
 def read_url_list(path: str) -> list[str]:
@@ -49,27 +34,67 @@ def read_url_list(path: str) -> list[str]:
     return urls
 
 
-def fetch_html(url: str, timeout: int, retries: int):
-    """Загружает HTML по URL с повторными попытками. Возвращает (html, error)."""
-    import requests
+def fetch_html(url: str, timeout: int, retries: int, proxy: str = None):
+    """
+    Загружает HTML с помощью безголового браузера Playwright.
+    Использует динамическое ожидание прохождения проверки Qrator.
+    """
+    from playwright.sync_api import sync_playwright
+    from playwright_stealth import Stealth
+    import time
+
     last_err = None
+    timeout_ms = timeout * 1000
+
     for attempt in range(retries + 1):
         try:
-            resp = requests.get(
-                url,
-                timeout=timeout,
-                headers={"User-Agent": USER_AGENT},
-            )
-            resp.raise_for_status()
-            return resp.text, None
+            with Stealth().use_sync(sync_playwright()) as p:
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-blink-features=AutomationControlled"
+                    ]
+                )
+
+                context = browser.new_context(
+                    user_agent=USER_AGENT,
+                    viewport={"width": 1280, "height": 800}
+                )
+                page = context.new_page()
+
+                # Устанавливаем жесткий лимит времени на уровне страницы
+                page.set_default_timeout(timeout_ms)
+
+                # Быстрый переход: не ждем загрузки тяжелых картинок и шрифтов
+                page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+
+                # Ждем прохождения Qrator: на реальной странице отеля появится тег <h1>.
+                # Скрипт Qrator отработает, поставит куки и перезагрузит страницу —
+                # Playwright корректно переждет этот переход.
+                try:
+                    page.wait_for_selector("h1", timeout=12000)
+                except Exception:
+                    # Если h1 не появился (например, страница не отеля), продолжаем парсинг того, что есть
+                    pass
+
+                # Небольшая пауза для завершения рендеринга скриптов разметки
+                page.wait_for_timeout(1500)
+
+                html_content = page.content()
+                browser.close()
+                return html_content, None
         except Exception as e:
             last_err = str(e)
             if attempt < retries:
-                time.sleep(1.5 * (attempt + 1))  # экспоненциальная задержка
+                time.sleep(2 * (attempt + 1))
+
     return None, last_err
 
 
-def process_source(source: str, is_local: bool, timeout: int, retries: int) -> dict:
+def process_source(source: str, is_local: bool, timeout: int, retries: int, proxy: str = None) -> dict:
     """Полный цикл обработки одной страницы: загрузка -> извлечение -> валидация."""
     if is_local:
         try:
@@ -78,24 +103,24 @@ def process_source(source: str, is_local: bool, timeout: int, retries: int) -> d
         except Exception as e:
             return {"url": source, "status": "fetch_failed", "message": str(e), "errors": []}
     else:
-        html_content, err = fetch_html(source, timeout, retries)
+        html_content, err = fetch_html(source, timeout, retries, proxy)
         if html_content is None:
             return {"url": source, "status": "fetch_failed", "message": err, "errors": []}
 
-    blocks = extract_jsonld_blocks(html_content)
+    # Используем новый экстрактор, поддерживающий JSON-LD и Microdata
+    blocks = extract_structured_data(html_content)
 
     if not blocks:
-        # Отсутствие микроразметки — это тоже находка для SEO-отчёта
         from validator import ValidationError
-        no_ld_error = ValidationError(
-            code="NO_JSONLD_FOUND",
+        no_markup_error = ValidationError(
+            code="NO_MARKUP_FOUND",
             severity="warning",
-            message="На странице не найдено ни одного блока application/ld+json.",
+            message="На странице не найдено структурированной разметки schema.org (ни в JSON-LD, ни в Microdata).",
             recommendation="Добавьте структурированную разметку schema.org для этой страницы.",
             schema_type="Unknown",
             block_index=0,
         )
-        return {"url": source, "status": "ok", "errors": [no_ld_error]}
+        return {"url": source, "status": "ok", "errors": [no_markup_error]}
 
     all_errors = []
     for block in blocks:
@@ -164,13 +189,12 @@ def main():
             result = future.result()
             results.append(result)
             done += 1
-            if done % 50 == 0 or done == len(sources):
+            if done % 10 == 0 or done == len(sources):
                 print(f"  обработано {done}/{len(sources)}", file=sys.stderr)
 
     elapsed = time.time() - start
     print(f"Готово за {elapsed:.1f} сек.", file=sys.stderr)
 
-    # Сохраняем порядок как во входном списке (потоки завершаются не по порядку)
     order = {src: i for i, src in enumerate(sources)}
     results.sort(key=lambda r: order.get(r["url"], 0))
 
@@ -180,6 +204,7 @@ def main():
             serializable.append({
                 "url": r["url"],
                 "status": r["status"],
+                "message": r.get("message", ""),
                 "errors": [
                     {
                         "code": e.code,

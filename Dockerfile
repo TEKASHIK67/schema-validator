@@ -1,23 +1,20 @@
-# Базовый образ — лёгкая версия Python (без лишнего веса, но со всем нужным для requests)
-FROM python:3.11-slim
+# Используем официальный образ Microsoft Playwright для Python v1.61.0
+FROM mcr.microsoft.com/playwright/python:v1.61.0-jammy
 
-# Рабочая директория внутри контейнера
+# Установка рабочей директории в контейнере
 WORKDIR /app
 
-# Сначала копируем только requirements.txt — это позволяет Docker кэшировать
-# слой с установленными зависимостями и не переустанавливать их при каждой
-# правке кода (пересоберётся только если сам requirements.txt изменится)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Установка необходимых дополнительных библиотек
+RUN pip install --no-cache-dir playwright-stealth extruct
 
-# Теперь копируем остальной код проекта
-COPY extractor.py validator.py report.py cli.py ./
+# Копирование исходных файлов проекта в контейнер
+COPY cli.py extractor.py validator.py report.py ./
+
+# Копируем папку samples (вместе с файлом urls_hotels.txt)
 COPY samples/ ./samples/
 
-# Папка, куда будут складываться отчёты — можно "пробросить" наружу через volume
-RUN mkdir -p /app/report_output
+# Делаем CLI-файл исполняемым
+RUN chmod +x cli.py
 
-# По умолчанию запускаем CLI с флагом --help, чтобы контейнер без аргументов
-# сразу показывал, как им пользоваться, а не падал молча
-ENTRYPOINT ["python3", "cli.py"]
-CMD ["--help"]
+# Задаем точку входа по умолчанию
+ENTRYPOINT ["python", "cli.py"]

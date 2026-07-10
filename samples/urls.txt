@@ -1,8 +1,14 @@
 # Список URL для обхода валидатором микроразметки.
 # В реальном кейсе — экспорт из карты сайта; для практики можно поднять два образца
 # локально (05_page_valid.html, 05_page_invalid.html) и проверять их.
-https://travelata.ru/hotels/turkey/belek/rixos-premium-belek
-https://travelata.ru/hotels/turkey/lara/delphin-imperial-lara
-https://travelata.ru/hotels/egypt/hurghada/steigenberger-aqua-magic
-https://travelata.ru/turkey/belek
-https://travelata.ru/turkey/lara
+# https://travelata.ru/hotels/turkey/belek/rixos-premium-belek
+# https://travelata.ru/hotels/turkey/lara/delphin-imperial-lara
+# https://travelata.ru/hotels/egypt/hurghada/steigenberger-aqua-magic
+# https://travelata.ru/turkey/belek
+# https://travelata.ru/turkey/lara
+https://travelata.ru/turkey/resorts/belek/hotels/sensitive-premium-resort-spa-5-0580790.html?#?fromCity=2&dateFrom=21.07.2026&dateTo=21.07.2026&nightFrom=6&nightTo=7&adults=2&priceFrom=6000&priceTo=21000000&meal=all&productType=all&sid=nlwum86uc0&hsid=ykz1ipyz8b
+https://travelata.ru/turkey/resorts/belek/hotels/voyage-belek-golf-spa-ex-club-voyage-belek-select-5-07a3a41.html
+https://travelata.ru/turkey/resorts/belek/hotels/kaya-belek-eh-riu-kaya-belek-5.html
+https://travelata.ru/turkey/resorts/belek/hotels/rixos-park-belek-5-c123a16.html
+https://travelata.ru/turkey/resorts/belek/hotels/belek-beach-resort-5.html
+https://travelata.ru/turkey/resorts/belek/hotels/belconti-resort-5-35dbe71.html

@@ -1,22 +1,17 @@
 # -*- coding: utf-8 -*-
 """
 validator.py
-Проверяет каждый JSON-LD блок в два этапа:
-  1. Синтаксическая валидность JSON (строгий json.loads).
+Проверяет каждый блок разметки в два этапа:
+  1. Синтаксическая валидность (только для JSON-LD блоков).
   2. Семантическая валидность по правилам для конкретного @type
      (Hotel, Product, BreadcrumbList) — обязательные поля, типы данных,
      согласованность нумерации и т.д.
-
-Если строгий парсинг падает (например, из-за висячей запятой), валидатор
-пытается "мягко" починить JSON (убрать частые ошибки вроде висячих запятых)
-и продолжить семантическую проверку на восстановленных данных. Это позволяет
-находить сразу несколько независимых проблем на одной странице, а не
-останавливаться на первой синтаксической ошибке.
 """
 
 import json
 import re
 from dataclasses import dataclass, field
+from extractor import ParsedBlock
 
 
 @dataclass
@@ -47,8 +42,7 @@ def try_strict_parse(raw_text: str):
 def try_lenient_parse(raw_text: str):
     """
     Пытается исправить самые частые синтаксические ошибки (висячие запятые)
-    и распарсить ещё раз, чтобы иметь возможность продолжить семантическую
-    проверку даже при наличии синтаксической ошибки.
+    и распарсить ещё раз.
     """
     fixed = TRAILING_COMMA_RE.sub(r'\1', raw_text)
     try:
@@ -240,7 +234,13 @@ def validate_breadcrumb(data: dict, block_index: int) -> list[ValidationError]:
                 block_index=block_index,
             ))
         else:
-            positions.append(item["position"])
+            pos_val = item["position"]
+            try:
+                # Безопасно приводим строковые числа "1", 1.0 и т.д. к целому числу (актуально для Microdata)
+                pos_val = int(float(str(pos_val).replace(',', '.')))
+            except (ValueError, TypeError):
+                pass
+            positions.append(pos_val)
 
         if "name" not in item:
             errors.append(ValidationError(
@@ -280,26 +280,31 @@ TYPE_VALIDATORS = {
 }
 
 
-def validate_block(block) -> list[ValidationError]:
-    """Полная проверка одного JSON-LD блока: синтаксис + семантика."""
+def validate_block(block: ParsedBlock) -> list[ValidationError]:
+    """Полная проверка одного блока разметки: синтаксис (только для JSON-LD) + семантика."""
     errors: list[ValidationError] = []
+    data = None
 
-    data, json_err = try_strict_parse(block.raw_text)
+    if block.source_format == "json-ld":
+        data, json_err = try_strict_parse(block.raw_text)
 
-    if json_err is not None:
-        errors.append(ValidationError(
-            code="JSON_SYNTAX_ERROR",
-            severity="error",
-            message=f'Синтаксическая ошибка JSON: {json_err.msg} (строка {json_err.lineno}, символ {json_err.colno}).',
-            recommendation='Исправьте синтаксис JSON (частая причина — висячая запятая перед } или ]).',
-            schema_type="Unknown",
-            block_index=block.index,
-        ))
-        # Пробуем восстановиться, чтобы найти дополнительные (семантические) проблемы
-        data = try_lenient_parse(block.raw_text)
-        if data is None:
-            # Не удалось восстановить — дальше проверять нечего
-            return errors
+        if json_err is not None:
+            errors.append(ValidationError(
+                code="JSON_SYNTAX_ERROR",
+                severity="error",
+                message=f'Синтаксическая ошибка JSON: {json_err.msg} (строка {json_err.lineno}, символ {json_err.colno}).',
+                recommendation='Исправьте синтаксис JSON (частая причина — висячая запятая перед } или ]).',
+                schema_type="Unknown",
+                block_index=block.index,
+            ))
+            # Пробуем восстановиться, чтобы найти дополнительные (семантические) проблемы
+            data = try_lenient_parse(block.raw_text)
+            if data is None:
+                # Не удалось восстановить — дальше проверять нечего
+                return errors
+    else:
+        # Для Microdata данные уже распарсены и нормализованы библиотекой extruct
+        data = block.raw_data
 
     if not isinstance(data, dict):
         return errors
@@ -319,7 +324,6 @@ def validate_block(block) -> list[ValidationError]:
         return errors
 
     for err in validator_fn(data, block.index):
-        # Проставляем корректный schema_type, если он не был известен на момент JSON_SYNTAX_ERROR
         errors.append(err)
 
     return errors
