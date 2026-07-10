@@ -1,20 +1,27 @@
-# Используем официальный образ Microsoft Playwright для Python v1.61.0
-FROM mcr.microsoft.com/playwright/python:v1.61.0-jammy
+# Базовый образ — лёгкая версия Python
+FROM python:3.11-slim
 
-# Установка рабочей директории в контейнере
 WORKDIR /app
 
-# Установка необходимых дополнительных библиотек
-RUN pip install --no-cache-dir playwright-stealth extruct
+# Сначала копируем requirements.txt отдельно — так Docker кэширует этот слой
+# и не переустанавливает всё заново при каждой правке кода
+COPY requirements.txt .
 
-# Копирование исходных файлов проекта в контейнер
-COPY cli.py extractor.py validator.py report.py ./
+# Устанавливаем Python-зависимости, а затем сам браузер Chromium вместе со
+# всеми системными библиотеками, которые ему нужны (--with-deps сам
+# определяет и ставит через apt всё необходимое — шрифты, кодеки и т.д.).
+# Это самый тяжёлый и долгий шаг сборки образа (может занять несколько минут
+# и добавить прилично веса), но без него Playwright не сможет запустить
+# headless-браузер внутри контейнера.
+RUN pip install --no-cache-dir -r requirements.txt \
+    && playwright install --with-deps chromium
 
-# Копируем папку samples (вместе с файлом urls_hotels.txt)
+# Копируем код проекта
+COPY extractor.py validator.py report.py cli.py ./
 COPY samples/ ./samples/
 
-# Делаем CLI-файл исполняемым
-RUN chmod +x cli.py
+# Папка для отчётов (в т.ч. порционных result/*)
+RUN mkdir -p /app/report_output
 
-# Задаем точку входа по умолчанию
-ENTRYPOINT ["python", "cli.py"]
+ENTRYPOINT ["python3", "cli.py"]
+CMD ["--help"]
